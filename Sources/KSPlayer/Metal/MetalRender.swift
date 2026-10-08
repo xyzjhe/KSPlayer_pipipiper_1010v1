@@ -91,7 +91,10 @@ class MetalRender {
 
     @MainActor
     func draw(pixelBuffer: PixelBufferProtocol, display: DisplayEnum = .plane, drawable: CAMetalDrawable) {
+        let textureStart = CACurrentMediaTime()
         let inputTextures = pixelBuffer.textures()
+        // 打点：CVPixelBuffer → MTLTexture 的获取成本（8K 帧如果走非零拷贝会在这里露出来）
+        KSRenderProfile.shared.addTexture(CACurrentMediaTime() - textureStart)
         renderPassDescriptor.colorAttachments[0].texture = drawable.texture
         guard !inputTextures.isEmpty, let commandBuffer = commandQueue?.makeCommandBuffer(), let encoder = commandBuffer.makeRenderCommandEncoder(descriptor: renderPassDescriptor) else {
             return
@@ -108,13 +111,17 @@ class MetalRender {
         display.set(encoder: encoder)
         encoder.popDebugGroup()
         encoder.endEncoding()
+        let commitStart = CACurrentMediaTime()
         // 保住 CVPixelBuffer 直到 GPU 采样完成（替代原来的 waitUntilCompleted 同步等待：
         // 同步等待会卡死主线程，触摸事件无法处理，导致转视角/FOV 卡顿）
         commandBuffer.addCompletedHandler { _ in
             withExtendedLifetime(pixelBuffer) {}
+            KSRenderProfile.shared.addGPU(CACurrentMediaTime() - commitStart)
         }
         commandBuffer.present(drawable)
         commandBuffer.commit()
+        // 打点：encode + commit 的 CPU 侧耗时
+        KSRenderProfile.shared.addEncode(CACurrentMediaTime() - commitStart)
     }
 
     private func setFragmentBuffer(pixelBuffer: PixelBufferProtocol, encoder: MTLRenderCommandEncoder) {

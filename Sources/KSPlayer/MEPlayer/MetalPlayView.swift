@@ -8,6 +8,7 @@
 import AVFoundation
 import Combine
 import CoreMedia
+import QuartzCore
 #if canImport(MetalKit)
 import MetalKit
 #endif
@@ -178,10 +179,14 @@ extension MetalPlayView {
     }
 
     private func draw(force: Bool) {
+        // 打点：一次 tick 的总耗时（含取帧、绘制提交与阻塞等待）
+        let tickStart = CACurrentMediaTime()
+        defer { KSRenderProfile.shared.addTick(CACurrentMediaTime() - tickStart) }
         autoreleasepool {
             guard let frame = renderSource?.getVideoOutputRender(force: force) else {
                 // VR 球面：没有新视频帧也用上一帧重绘，视角转动与视频帧率解耦
                 if options.display != .plane, displayView.isHidden, let pixelBuffer, !KSOptions.vrPauseRerender {
+                    KSRenderProfile.shared.noteDraw(newFrame: false)
                     metalView.draw(pixelBuffer: pixelBuffer, display: options.display, size: lastVRSize)
                 }
                 return
@@ -230,6 +235,7 @@ extension MetalPlayView {
                     KSOptions.vrDrawableSize = size
                 }
                 checkFormatDescription(pixelBuffer: pixelBuffer)
+                KSRenderProfile.shared.noteDraw(newFrame: true)
                 #if !os(tvOS)
                 if #available(iOS 16, *) {
                     metalView.metalLayer.edrMetadata = frame.edrMetadata
@@ -292,6 +298,7 @@ class MetalView: UIView {
     }
 
     func draw(pixelBuffer: PixelBufferProtocol, display: DisplayEnum, size: CGSize) {
+        let waitStart = CACurrentMediaTime()
         metalLayer.drawableSize = size
         metalLayer.pixelFormat = KSOptions.colorPixelFormat(bitDepth: pixelBuffer.bitDepth)
         let colorspace = pixelBuffer.colorspace
@@ -317,6 +324,8 @@ class MetalView: UIView {
             KSLog("[video] CAMetalLayer not readyForMoreMediaData")
             return
         }
+        // 打点：拿不到空闲 drawable 的阻塞时间（GPU 没跑完 / vsync 节流都会体现在这里）
+        KSRenderProfile.shared.addDrawableWait(CACurrentMediaTime() - waitStart)
         render.draw(pixelBuffer: pixelBuffer, display: display, drawable: drawable)
     }
 }

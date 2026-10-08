@@ -152,6 +152,9 @@ class SyncPlayerItemTrack<Frame: MEFrame>: PlayerItemTrackProtocol, CustomString
                     }
                 }
                 if let frame = frame as? Frame {
+                    if packet.assetTrack.mediaType == .video {
+                        KSRenderProfile.shared.noteDecodedFrame()
+                    }
                     self.outputRenderQueue.push(frame)
                     self.outputRenderQueue.fps = packet.assetTrack.nominalFrameRate
                 }
