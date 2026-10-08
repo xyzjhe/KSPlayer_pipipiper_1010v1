@@ -89,6 +89,12 @@ public extension KSOptions {
     /// 暂停「无新帧重绘」（弹层/列表覆盖播放画面时置 true：
     /// 8K 120Hz 重绘会把 GPU 占满，覆盖层滑动会非常卡）
     static var vrPauseRerender = false
+    /// VR 渲染分辨率缩放（1.0 = 屏幕原生像素）。8K 硬解丢帧（帧跟不上音频时钟被丢弃）
+    /// 时降到 0.75/0.5，减少球面着色的采样次数与写带宽；只影响清晰度，不影响解码。
+    static var vrRenderScale: Float = 1.0
+    /// 最近一帧 VR 渲染的 drawable 像素尺寸。分屏视口按它算，
+    /// 用 sceneSize（点坐标）会把两眼画面算成 1x、只占原生 drawable 的左上一小块
+    static var vrDrawableSize = CGSize(width: 1280, height: 720)
     static var stackSize = 65536
     static var isClearVideoWhereReplace = true
     static var audioPlayerType: AudioOutput.Type = AudioEnginePlayer.self

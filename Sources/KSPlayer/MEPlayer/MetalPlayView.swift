@@ -222,10 +222,12 @@ extension MetalPlayView {
                 } else {
                     // sceneSize 是窗口点坐标；drawableSize 需要物理像素，
                     // 乘 nativeScale 才不会按 1x 低分辨率渲染（清晰度劣化根因）
-                    let scale = window?.screen.nativeScale ?? 1
-                    size = CGSize(width: KSOptions.sceneSize.width * scale,
-                                  height: KSOptions.sceneSize.height * scale)
+                    // vrRenderScale 再降一档用于换回 GPU 余量（8K 硬解丢帧）
+                    let scale = (window?.screen.nativeScale ?? 1) * CGFloat(max(0.25, min(1, KSOptions.vrRenderScale)))
+                    size = CGSize(width: max(1, (KSOptions.sceneSize.width * scale).rounded()),
+                                  height: max(1, (KSOptions.sceneSize.height * scale).rounded()))
                     lastVRSize = size
+                    KSOptions.vrDrawableSize = size
                 }
                 checkFormatDescription(pixelBuffer: pixelBuffer)
                 #if !os(tvOS)

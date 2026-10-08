@@ -322,7 +322,9 @@ private class VRBoxDisplayModel: SphereDisplayModel {
     override func set(encoder: MTLRenderCommandEncoder) {
         updateProjectionIfNeeded()
         super.set(encoder: encoder)
-        let layerSize = KSOptions.sceneSize
+        // 视口单位是 drawable 像素，必须用 vrDrawableSize（含 nativeScale 与渲染缩放），
+        // 用 sceneSize 点坐标会把两眼画面缩到左下角一小块
+        let layerSize = KSOptions.vrDrawableSize
         let width = Double(layerSize.width / 2)
         [(modelViewProjectionMatrixLeft, MTLViewport(originX: 0, originY: 0, width: width, height: Double(layerSize.height), znear: 0, zfar: 0)),
          (modelViewProjectionMatrixRight, MTLViewport(originX: width, originY: 0, width: width, height: Double(layerSize.height), znear: 0, zfar: 0))].forEach { modelViewProjectionMatrix, viewport in
