@@ -876,15 +876,28 @@ extension MEPlayerItem: OutputRenderSourceDelegate {
             (self.dynamicInfo.audioVideoSyncDiff, type) = self.options.videoClockSync(main: self.mainClock(), nextVideoTime: frame.seconds, fps: Double(frame.fps), frameCount: count)
             return type != .remain
         }
-        let frame = videoTrack.getOutputRender(where: predicate)
+        KSRenderProfile.shared.noteOutputQueue(count: videoTrack.outputRenderQueue.count)
+        var frame = videoTrack.getOutputRender(where: predicate)
         switch type {
         case .remain:
             break
         case .next:
             break
         case .dropNextFrame:
-            if videoTrack.getOutputRender(where: nil) != nil {
-                dynamicInfo.droppedVideoFrameCount += 1
+            // 落后于音频时钟。原实现是「显示这一帧 + 再弹一帧丢掉」，解码供不上源帧率时
+            // 等于每显示 1 帧白扔 1 帧（8K 实测解码 47/s、只有 27/s 上屏）。
+            // 改成真正的追赶：把比最新一帧更旧的画面全部丢掉并计数，显示最新那一帧。
+            if let late = frame {
+                var newest = late
+                var dropped = 0
+                while let next = videoTrack.getOutputRender(where: nil) {
+                    dropped += 1
+                    newest = next
+                }
+                if dropped > 0 {
+                    dynamicInfo.droppedVideoFrameCount += UInt32(dropped)
+                    frame = newest
+                }
             }
         case .flush:
             let count = videoTrack.outputRenderQueue.count

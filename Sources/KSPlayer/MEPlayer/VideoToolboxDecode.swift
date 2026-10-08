@@ -7,6 +7,7 @@
 
 import FFmpegKit
 import Libavformat
+import QuartzCore
 #if canImport(VideoToolbox)
 import VideoToolbox
 
@@ -54,6 +55,9 @@ class VideoToolboxDecode: DecodeProtocol {
             let packetFlags = corePacket.flags
             let duration = corePacket.duration
             let size = corePacket.size
+            // 打点：提交速率 vs 出帧速率能区分「喂不上」和「硬解本身跑不满」
+            let submitAt = CACurrentMediaTime()
+            KSRenderProfile.shared.noteDecodeSubmit()
             let status = VTDecompressionSessionDecodeFrame(session.decompressionSession, sampleBuffer: sampleBuffer, flags: flags, infoFlagsOut: &flagOut) { [weak self] status, infoFlags, imageBuffer, presentationTime, _ in
                 guard let self, !infoFlags.contains(.frameDropped) else {
                     return
@@ -69,6 +73,7 @@ class VideoToolboxDecode: DecodeProtocol {
                     }
                     return
                 }
+                KSRenderProfile.shared.addDecodeLatency(CACurrentMediaTime() - submitAt)
                 let frame = VideoVTBFrame(fps: session.assetTrack.nominalFrameRate, isDovi: session.assetTrack.dovi != nil)
                 frame.corePixelBuffer = imageBuffer
                 frame.timebase = session.assetTrack.timebase

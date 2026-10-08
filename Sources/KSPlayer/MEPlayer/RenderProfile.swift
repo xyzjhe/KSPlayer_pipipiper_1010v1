@@ -10,12 +10,19 @@
 import Foundation
 import QuartzCore
 
-public final class KSRenderProfile {
+/// 内部所有状态都在锁里读写，可以安全跨线程共享
+public final class KSRenderProfile: @unchecked Sendable {
     public static let shared = KSRenderProfile()
 
     public struct Snapshot {
-        /// 解码器每秒交付到出帧队列的视频帧数（≈60 说明解码跟得上）
+        /// 每秒提交给 VideoToolbox 的 packet 数（≈源帧率说明喂得上）
+        public var submitFPS: Double = 0
+        /// 解码器每秒交付到出帧队列的视频帧数（明显低于 submitFPS 说明卡在硬解本身）
         public var decodedFPS: Double = 0
+        /// 单次 submit → 解码回调 的平均延迟
+        public var decodeLatencyMs: Double = 0
+        /// 取帧时出帧队列的积压深度（持续接近容量说明被消费端反压）
+        public var outputQueueCount: Int = 0
         /// 每秒提交的 Metal 绘制次数（含无新帧的视角重绘）
         public var drawFPS: Double = 0
         /// 绘制里真正带新视频帧的比例
@@ -49,9 +56,12 @@ public final class KSRenderProfile {
 
     private let lock = NSLock()
     private var windowStart = CACurrentMediaTime()
+    private var submits = 0
     private var decodedFrames = 0
     private var draws = 0
     private var newFrameDraws = 0
+    private var decodeLatency = Bucket()
+    private var lastOutputQueueCount = 0
     private var texture = Bucket()
     private var encode = Bucket()
     private var drawableWait = Bucket()
@@ -65,10 +75,20 @@ public final class KSRenderProfile {
         return latest
     }
 
+    public func noteDecodeSubmit() {
+        mutate { $0.submits += 1 }
+    }
+
+    public func addDecodeLatency(_ seconds: Double) {
+        mutate { $0.decodeLatency.add(seconds) }
+    }
+
+    public func noteOutputQueue(count: Int) {
+        mutate { $0.lastOutputQueueCount = count }
+    }
+
     public func noteDecodedFrame() {
-        mutate { profile in
-            profile.decodedFrames += 1
-        }
+        mutate { $0.decodedFrames += 1 }
     }
 
     public func noteDraw(newFrame: Bool) {
@@ -109,7 +129,10 @@ public final class KSRenderProfile {
         let elapsed = now - windowStart
         guard elapsed >= 1 else { return }
         var snapshot = Snapshot()
+        snapshot.submitFPS = Double(submits) / elapsed
         snapshot.decodedFPS = Double(decodedFrames) / elapsed
+        snapshot.decodeLatencyMs = decodeLatency.averageMs
+        snapshot.outputQueueCount = lastOutputQueueCount
         snapshot.drawFPS = Double(draws) / elapsed
         snapshot.newFrameRatio = draws > 0 ? Double(newFrameDraws) / Double(draws) : 0
         snapshot.textureMs = texture.averageMs
@@ -119,9 +142,11 @@ public final class KSRenderProfile {
         snapshot.tickMs = tick.averageMs
         latest = snapshot
         windowStart = now
+        submits = 0
         decodedFrames = 0
         draws = 0
         newFrameDraws = 0
+        decodeLatency.reset()
         texture.reset()
         encode.reset()
         drawableWait.reset()
