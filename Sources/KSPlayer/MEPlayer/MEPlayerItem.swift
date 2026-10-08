@@ -712,7 +712,7 @@ extension MEPlayerItem: MediaPlayback {
     }
 
     public func seek(time: TimeInterval, completion: @escaping ((Bool) -> Void)) {
-        if state == .reading || state == .paused {
+        if state == .reading || state == .paused || state == .opened {
             seekTime = time
             state = .seeking
             seekingCompletionHandler = completion
@@ -726,6 +726,19 @@ extension MEPlayerItem: MediaPlayback {
         } else if state == .seeking {
             seekTime = time
             seekingCompletionHandler = completion
+            // 必须重新置位并广播：读线程可能刚好把 state 改回 .reading，只记 seekTime
+            // 这次 seek 就永远没人执行——上层停在 .seeking，界面一直转圈而后台还在满速
+            // 下载（WebDAV 上连续快进很容易撞中这个窗口）
+            state = .seeking
+            condition.broadcast()
+        } else if state == .opening || state == .idle {
+            // 流还没开完：把目标位置交给 readThread 的 startPlayTime 分支处理
+            seekTime = time
+            options.startPlayTime = time
+            completion(true)
+        } else {
+            // closed / failed：明确回失败，别让上层无限等
+            completion(false)
         }
         isAudioStalled = audioTrack == nil
     }
