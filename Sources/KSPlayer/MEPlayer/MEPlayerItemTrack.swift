@@ -255,6 +255,10 @@ final class AsyncPlayerItemTrack<Frame: MEFrame>: SyncPlayerItemTrack<Frame> {
                     guard let packet = packetQueue.pop(wait: true), state != .flush, state != .closed else {
                         continue
                     }
+                    if options.dropNonReferenceWhenLagging, options.videoClockDelayCount >= 2, packet.isNonReference {
+                        // 处于落后状态时跳过非参考 B 帧解码，直接减轻硬解负荷
+                        continue
+                    }
                     autoreleasepool {
                         doDecode(packet: packet)
                     }

@@ -897,19 +897,14 @@ extension MEPlayerItem: OutputRenderSourceDelegate {
         case .next:
             break
         case .dropNextFrame:
-            // 落后于音频时钟。原实现是「显示这一帧 + 再弹一帧丢掉」，解码供不上源帧率时
-            // 等于每显示 1 帧白扔 1 帧（8K 实测解码 47/s、只有 27/s 上屏）。
-            // 改成真正的追赶：把比最新一帧更旧的画面全部丢掉并计数，显示最新那一帧。
+            // 落后于音频时钟。平滑抽帧追赶：
+            // 只额外丢弃 1 帧落后画面，且确保剩余队列不跌破重排窗口，避免排空队列导致渲染断流
             if let late = frame {
-                var newest = late
-                var dropped = 0
-                while let next = videoTrack.getOutputRender(where: nil) {
-                    dropped += 1
-                    newest = next
-                }
-                if dropped > 0 {
-                    dynamicInfo.droppedVideoFrameCount += UInt32(dropped)
-                    frame = newest
+                let reorderWindow = min(5, max(1, videoTrack.outputRenderQueue.maxCount - 1))
+                if videoTrack.outputRenderQueue.count >= reorderWindow - 1,
+                   let next = videoTrack.getOutputRender(where: nil) {
+                    dynamicInfo.droppedVideoFrameCount += 1
+                    frame = next
                 }
             }
         case .flush:
@@ -922,7 +917,7 @@ extension MEPlayerItem: OutputRenderSourceDelegate {
         case .dropNextPacket:
             if let videoTrack = videoTrack as? AsyncPlayerItemTrack {
                 let packet = videoTrack.packetQueue.pop { item, _ -> Bool in
-                    !item.isKeyFrame
+                    item.isNonReference
                 }
                 if packet != nil {
                     dynamicInfo.droppedVideoPacketCount += 1

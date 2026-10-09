@@ -95,7 +95,8 @@ open class KSOptions {
     public var automaticWindowResize = true
     @Published
     public var videoInterlacingType: VideoInterlacingType?
-    private var videoClockDelayCount = 0
+    public internal(set) var videoClockDelayCount = 0
+    public var dropNonReferenceWhenLagging = true
 
     public internal(set) var formatName = ""
     public internal(set) var prepareTime = 0.0
@@ -378,12 +379,15 @@ open class KSOptions {
         } else {
             if diff < -4 / fps {
                 videoClockDelayCount += 1
-                // 禁用追赶策略：解码供不上源帧率时（8K 实测 47/s vs 60/s），
-                // 丢帧/排空队列只会让渲染帧率更低。每帧都显示，让同步差自然累积。
                 if diff < -8, videoClockDelayCount % 100 == 0 {
                     let log = "[video] video delay=\(diff), clock=\(desire), delay count=\(videoClockDelayCount), frameCount=\(frameCount)"
                     KSLog("\(log) seek video track")
                     return (diff, .seek)
+                }
+                // 平滑抽帧追赶：如果落后且队列有缓冲，每 4 次落后判定抽掉 1 帧
+                let reorderWindow = min(5, max(1, frameCount - 1))
+                if frameCount >= reorderWindow, videoClockDelayCount % 4 == 0 {
+                    return (diff, .dropNextFrame)
                 }
                 return (diff, .next)
             } else {

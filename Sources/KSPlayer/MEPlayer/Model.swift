@@ -225,6 +225,42 @@ final class Packet: ObjectQueueItem {
         }
     }
 
+    /// 根据 NAL 单元头判断是否为标准非参考帧（丢弃绝不影响其他帧，不会导致花屏）
+    var isNonReference: Bool {
+        guard let corePacket = corePacket?.pointee,
+              let data = corePacket.data,
+              corePacket.size > 5,
+              !isKeyFrame else {
+            return false
+        }
+        let codecID = assetTrack?.codecpar.codec_id
+        if codecID == AV_CODEC_ID_HEVC {
+            var offset = 0
+            if data[0] == 0 && data[1] == 0 {
+                offset = (data[2] == 1) ? 3 : (data[2] == 0 && data[3] == 1 ? 4 : 4)
+            } else {
+                offset = 4
+            }
+            if offset < Int(corePacket.size) {
+                let nalType = (data[offset] >> 1) & 0x3F
+                // TRAIL_N (0), TSA_N (2), STSA_N (4), RADL_N (6), RASL_N (8), RSV_VCL_N (10, 12, 14)
+                return nalType <= 14 && (nalType % 2 == 0)
+            }
+        } else if codecID == AV_CODEC_ID_H264 {
+            var offset = 0
+            if data[0] == 0 && data[1] == 0 {
+                offset = (data[2] == 1) ? 3 : (data[2] == 0 && data[3] == 1 ? 4 : 4)
+            } else {
+                offset = 4
+            }
+            if offset < Int(corePacket.size) {
+                let nalRefIdc = (data[offset] >> 5) & 0x03
+                return nalRefIdc == 0
+            }
+        }
+        return false
+    }
+
     var assetTrack: FFmpegAssetTrack! {
         didSet {
             guard let packet = corePacket?.pointee else {
