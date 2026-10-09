@@ -378,33 +378,14 @@ open class KSOptions {
         } else {
             if diff < -4 / fps {
                 videoClockDelayCount += 1
-                let log = "[video] video delay=\(diff), clock=\(desire), delay count=\(videoClockDelayCount), frameCount=\(frameCount)"
-                if frameCount == 1 {
-                    if diff < -1, videoClockDelayCount % 10 == 0 {
-                        KSLog("\(log) drop gop Packet")
-                        return (diff, .dropGOPPacket)
-                    } else if videoClockDelayCount % 5 == 0 {
-                        KSLog("\(log) drop next frame")
-                        return (diff, .dropNextFrame)
-                    } else {
-                        return (diff, .next)
-                    }
-                } else {
-                    if diff < -8, videoClockDelayCount % 100 == 0 {
-                        KSLog("\(log) seek video track")
-                        return (diff, .seek)
-                    }
-                    if diff < -1, videoClockDelayCount % 10 == 0 {
-                        KSLog("\(log) flush video track")
-                        return (diff, .flush)
-                    }
-                    if videoClockDelayCount % 2 == 0 {
-                        KSLog("\(log) drop next frame")
-                        return (diff, .dropNextFrame)
-                    } else {
-                        return (diff, .next)
-                    }
+                // 禁用追赶策略：解码供不上源帧率时（8K 实测 47/s vs 60/s），
+                // 丢帧/排空队列只会让渲染帧率更低。每帧都显示，让同步差自然累积。
+                if diff < -8, videoClockDelayCount % 100 == 0 {
+                    let log = "[video] video delay=\(diff), clock=\(desire), delay count=\(videoClockDelayCount), frameCount=\(frameCount)"
+                    KSLog("\(log) seek video track")
+                    return (diff, .seek)
                 }
+                return (diff, .next)
             } else {
                 videoClockDelayCount = 0
                 return (diff, .next)
